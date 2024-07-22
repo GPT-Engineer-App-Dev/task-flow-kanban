@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { DragDropContext, Droppable } from "react-beautiful-dnd";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { UserNav } from "@/components/UserNav";
 import { KanbanColumn } from "@/components/KanbanColumn";
@@ -39,69 +38,57 @@ const initialData = {
 const Index = () => {
   const [data, setData] = useState(initialData);
 
-  const onDragEnd = (result) => {
-    const { destination, source, draggableId } = result;
+  const onDragEnd = (event) => {
+    const { active, over } = event;
 
-    if (!destination) {
-      return;
+    if (active.id !== over.id) {
+      setData((prevData) => {
+        const oldColumnId = active.data.current.columnId;
+        const newColumnId = over.data.current.columnId;
+
+        const oldColumn = prevData.columns[oldColumnId];
+        const newColumn = prevData.columns[newColumnId];
+
+        const oldTaskIds = Array.from(oldColumn.taskIds);
+        const newTaskIds = Array.from(newColumn.taskIds);
+
+        const oldIndex = oldTaskIds.indexOf(active.id);
+        const newIndex = newTaskIds.indexOf(over.id);
+
+        if (oldColumnId === newColumnId) {
+          // Moving within the same column
+          const newTaskIds = arrayMove(oldTaskIds, oldIndex, newIndex);
+          return {
+            ...prevData,
+            columns: {
+              ...prevData.columns,
+              [oldColumnId]: {
+                ...oldColumn,
+                taskIds: newTaskIds,
+              },
+            },
+          };
+        } else {
+          // Moving to a different column
+          oldTaskIds.splice(oldIndex, 1);
+          newTaskIds.splice(newIndex, 0, active.id);
+          return {
+            ...prevData,
+            columns: {
+              ...prevData.columns,
+              [oldColumnId]: {
+                ...oldColumn,
+                taskIds: oldTaskIds,
+              },
+              [newColumnId]: {
+                ...newColumn,
+                taskIds: newTaskIds,
+              },
+            },
+          };
+        }
+      });
     }
-
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
-
-    const start = data.columns[source.droppableId];
-    const finish = data.columns[destination.droppableId];
-
-    if (start === finish) {
-      const newTaskIds = Array.from(start.taskIds);
-      newTaskIds.splice(source.index, 1);
-      newTaskIds.splice(destination.index, 0, draggableId);
-
-      const newColumn = {
-        ...start,
-        taskIds: newTaskIds,
-      };
-
-      const newData = {
-        ...data,
-        columns: {
-          ...data.columns,
-          [newColumn.id]: newColumn,
-        },
-      };
-
-      setData(newData);
-      return;
-    }
-
-    // Moving from one list to another
-    const startTaskIds = Array.from(start.taskIds);
-    startTaskIds.splice(source.index, 1);
-    const newStart = {
-      ...start,
-      taskIds: startTaskIds,
-    };
-
-    const finishTaskIds = Array.from(finish.taskIds);
-    finishTaskIds.splice(destination.index, 0, draggableId);
-    const newFinish = {
-      ...finish,
-      taskIds: finishTaskIds,
-    };
-
-    const newData = {
-      ...data,
-      columns: {
-        ...data.columns,
-        [newStart.id]: newStart,
-        [newFinish.id]: newFinish,
-      },
-    };
-    setData(newData);
   };
 
   return (
@@ -114,28 +101,25 @@ const Index = () => {
         <UserNav />
       </header>
       <main className="flex-grow overflow-x-auto">
-        <DragDropContext onDragEnd={onDragEnd}>
+        <DndContext onDragEnd={onDragEnd} collisionDetection={closestCenter}>
           <ResizablePanelGroup direction="horizontal" className="min-h-full">
-            {data.columnOrder.map((columnId, index) => {
+            {data.columnOrder.map((columnId) => {
               const column = data.columns[columnId];
               const tasks = column.taskIds.map((taskId) => data.tasks[taskId]);
 
               return (
                 <ResizablePanel key={column.id} defaultSize={33}>
-                  <Droppable droppableId={column.id}>
-                    {(provided) => (
-                      <KanbanColumn
-                        column={column}
-                        tasks={tasks}
-                        provided={provided}
-                      />
-                    )}
-                  </Droppable>
+                  <SortableContext items={column.taskIds} strategy={verticalListSortingStrategy}>
+                    <KanbanColumn
+                      column={column}
+                      tasks={tasks}
+                    />
+                  </SortableContext>
                 </ResizablePanel>
               );
             })}
           </ResizablePanelGroup>
-        </DragDropContext>
+        </DndContext>
       </main>
     </div>
   );
